@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -48,5 +49,46 @@ jobs:
             brew install xcodegen
           fi
 
-      - name: Build
-        run: ./build.sh --debug
+      - name: Build (Release, universal)
+        run: ./build.sh
+
+      # Version aus dem GEBAUTEN App-Bundle lesen (dort ist $(MARKETING_VERSION)
+      # bereits aufgeloest); Fallback `dev`, falls die Plist fehlt/leer ist.
+      - name: Read app version
+        id: appver
+        run: |
+          plist="Blitztext.app/Contents/Info.plist"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || true)"
+          case "$version" in
+            ''|'$('*) version="dev" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "App-Version: $version"
+
+      # Harte Pruefung: Binary MUSS x86_64 UND arm64 enthalten (Universal Binary).
+      - name: Verify universal binary (lipo)
+        run: |
+          binary="Blitztext.app/Contents/MacOS/Blitztext"
+          if [ ! -f "$binary" ]; then
+            echo "❌ App-Binary nicht gefunden: $binary"
+            exit 1
+          fi
+          archs="$(lipo -archs "$binary")"
+          echo "Architekturen: $archs"
+          case " $archs " in *" x86_64 "*) ;; *) echo "❌ x86_64 fehlt"; exit 1 ;; esac
+          case " $archs " in *" arm64 "*) ;; *) echo "❌ arm64 fehlt"; exit 1 ;; esac
+          echo "✅ Universal Binary verifiziert: $archs"
+
+      # App zippen (Bundle-Struktur/Symlinks erhalten via ditto).
+      - name: Package app (zip)
+        run: |
+          ditto -c -k --keepParent Blitztext.app "Blitztext-${{ steps.appver.outputs.version }}.zip"
+          ls -lh Blitztext-*.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blitztext-mac-app
+          path: Blitztext-*.zip
+          if-no-files-found: error
+          retention-days: 14
