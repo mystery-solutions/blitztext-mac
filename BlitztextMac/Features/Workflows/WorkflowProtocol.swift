@@ -122,19 +122,24 @@ struct AppSettings: Codable {
     var secureLocalModeEnabled: Bool = false
     var selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName
     var hasAutoSelectedFastLocalModel: Bool = false
+    /// Frei belegbare Trigger je Workflow, keyed by `WorkflowType.rawValue`.
+    /// Fehlt/korrupt → Fallback auf die heutigen fn-Defaults (`HotkeyBinding.defaultsByRawValue`).
+    var hotkeyBindings: [String: HotkeyBinding] = HotkeyBinding.defaultsByRawValue
 
     init(
         hotkeyMode: HotkeyMode = .hold,
         hasSeenOnboarding: Bool = false,
         secureLocalModeEnabled: Bool = false,
         selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName,
-        hasAutoSelectedFastLocalModel: Bool = false
+        hasAutoSelectedFastLocalModel: Bool = false,
+        hotkeyBindings: [String: HotkeyBinding] = HotkeyBinding.defaultsByRawValue
     ) {
         self.hotkeyMode = hotkeyMode
         self.hasSeenOnboarding = hasSeenOnboarding
         self.secureLocalModeEnabled = secureLocalModeEnabled
         self.selectedLocalTranscriptionModelName = selectedLocalTranscriptionModelName
         self.hasAutoSelectedFastLocalModel = hasAutoSelectedFastLocalModel
+        self.hotkeyBindings = hotkeyBindings
     }
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +148,7 @@ struct AppSettings: Codable {
         case secureLocalModeEnabled
         case selectedLocalTranscriptionModelName
         case hasAutoSelectedFastLocalModel
+        case hotkeyBindings
     }
 
     init(from decoder: Decoder) throws {
@@ -158,6 +164,15 @@ struct AppSettings: Codable {
             Bool.self,
             forKey: .hasAutoSelectedFastLocalModel
         ) ?? false
+        // Fehlender oder korrupter Key → vollständige fn-Defaults. Fehlt nur ein
+        // einzelner Workflow, füllen wir ihn beim Zugriff über den Default-Fallback.
+        let decodedBindings = try container.decodeIfPresent(
+            [String: HotkeyBinding].self,
+            forKey: .hotkeyBindings
+        )
+        hotkeyBindings = (decodedBindings?.isEmpty == false)
+            ? decodedBindings!
+            : HotkeyBinding.defaultsByRawValue
     }
 }
 

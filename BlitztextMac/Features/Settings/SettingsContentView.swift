@@ -53,6 +53,103 @@ private struct SectionLabel: View {
     }
 }
 
+// MARK: - Hotkey Binding Row (Trigger-Picker)
+
+struct HotkeyBindingRow: View {
+    let title: String
+    let binding: HotkeyBinding
+    let isRecording: Bool
+    let needsFallback: Bool
+    let onRecordToggle: () -> Void
+    let onFnToggle: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 11.5, weight: .medium))
+                .frame(width: 120, alignment: .leading)
+
+            comboLabel
+                .frame(width: 96, alignment: .leading)
+
+            Spacer()
+
+            Toggle("fn", isOn: Binding(
+                get: { binding.usesFnModifier },
+                set: { onFnToggle($0) }
+            ))
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
+            .font(.system(size: 10.5))
+
+            Button(isRecording ? "Taste dr\u{00FC}cken \u{2026}" : "Aufnehmen") {
+                onRecordToggle()
+            }
+            .controlSize(.small)
+            .font(.system(size: 10.5))
+            .frame(width: 96)
+        }
+    }
+
+    @ViewBuilder
+    private var comboLabel: some View {
+        if isRecording {
+            Text("\u{2026} ESC bricht ab")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.blue)
+        } else if !binding.isValid {
+            Text("ung\u{00FC}ltig")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.red)
+        } else {
+            HStack(spacing: 4) {
+                Text(binding.displayString)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                if needsFallback {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.orange)
+                        .help("Systemweite Registrierung belegt \u{2013} nutzt Monitor-Fallback.")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Key Capture Monitor (Trigger-Picker)
+
+/// Kapselt einen lokalen `NSEvent`-Monitor, der während der Aufnahme den nächsten
+/// Tastendruck abfängt. Der Handler entscheidet per Rückgabewert, ob das Event
+/// geschluckt wird (damit es nicht ins UI tippt).
+final class KeyCaptureMonitor {
+    private var monitor: Any?
+
+    func start(onCapture: @escaping @MainActor (NSEvent) -> Bool) {
+        stop()
+        // Lokale NSEvent-Monitore werden auf dem Main-Thread zugestellt; der
+        // Handler muss synchron zurückgeben (nil = Event schlucken).
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            MainActor.assumeIsolated {
+                onCapture(event) ? nil : event
+            }
+        }
+    }
+
+    func stop() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+
+    deinit {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+}
+
 // MARK: - Access Settings (Tab 1: Zugang)
 
 struct AccessSettingsView: View {
@@ -513,6 +610,9 @@ struct AccessSettingsView: View {
 struct CustomizeSettingsView: View {
     @Bindable var appState: AppState
     @State private var newTerm = ""
+    @State private var recordingType: WorkflowType?
+    @State private var hotkeyConflictMessage: String?
+    @State private var recorder = KeyCaptureMonitor()
 
     private var installedLocalModels: [LocalTranscriptionModel] {
         LocalTranscriptionService.installedModels()
@@ -520,6 +620,75 @@ struct CustomizeSettingsView: View {
 
     private var localModelOptions: [LocalTranscriptionModel] {
         LocalTranscriptionService.modelOptions()
+    }
+
+    // MARK: - Hotkey Recording
+
+    @MainActor
+    private func toggleRecording(for type: WorkflowType) {
+        if recordingType == type {
+            cancelRecording()
+            return
+        }
+        hotkeyConflictMessage = nil
+        recordingType = type
+        recorder.start { [self] event in
+            captureHotkey(event, for: type)
+        }
+    }
+
+    /// Fängt den nächsten Tastendruck ab. Rückgabe `true` = Event geschluckt.
+    /// Nimmt ausschließlich Standard-Kombis auf (Modifier + Basistaste, `usesFn=false`);
+    /// reine Modifier lösen kein keyDown aus und sind damit ungültig.
+    @MainActor
+    private func captureHotkey(_ event: NSEvent, for type: WorkflowType) -> Bool {
+        guard event.type == .keyDown else { return false }
+        // ESC bricht die Aufnahme ohne Änderung ab.
+        if event.keyCode == 53 {
+            cancelRecording()
+            return true
+        }
+        let mods = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .intersection(HotkeyBinding.relevantModifiers)
+        let candidate = HotkeyBinding(modifiers: mods, keyCode: event.keyCode, usesFnModifier: false)
+
+        if let conflict = appState.hotkeyConflict(for: candidate, excluding: type) {
+            hotkeyConflictMessage = "\(candidate.displayString) ist bereits mit \(appState.displayName(for: conflict)) belegt."
+            cancelRecording()
+            return true
+        }
+
+        hotkeyConflictMessage = nil
+        appState.setBinding(candidate, for: type)
+        cancelRecording()
+        return true
+    }
+
+    /// "fn verwenden" umschalten. An → fn-Default des Workflows (modifier-only).
+    /// Aus → Standard-Kombi; ohne Basistaste bleibt sie ungültig bis zur Aufnahme.
+    @MainActor
+    private func setFn(_ useFn: Bool, for type: WorkflowType) {
+        cancelRecording()
+        hotkeyConflictMessage = nil
+        if useFn {
+            let fnDefault = HotkeyBinding.defaultBinding(for: type)
+            if let conflict = appState.hotkeyConflict(for: fnDefault, excluding: type) {
+                hotkeyConflictMessage = "fn-Standard von \(appState.displayName(for: type)) kollidiert mit \(appState.displayName(for: conflict))."
+                return
+            }
+            appState.setBinding(fnDefault, for: type)
+        } else {
+            var current = appState.binding(for: type)
+            current.usesFnModifier = false
+            appState.setBinding(current, for: type)
+        }
+    }
+
+    @MainActor
+    private func cancelRecording() {
+        recorder.stop()
+        recordingType = nil
     }
 
     var body: some View {
@@ -595,20 +764,57 @@ struct CustomizeSettingsView: View {
 
             // MARK: Tastenkuerzel
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(text: "Tastenk\u{00FC}rzel")
+                HStack {
+                    SectionLabel(text: "Tastenk\u{00FC}rzel")
+                    Spacer()
+                    Button("Auf Standard zur\u{00FC}cksetzen") {
+                        cancelRecording()
+                        hotkeyConflictMessage = nil
+                        appState.resetHotkeysToDefaults()
+                    }
+                    .controlSize(.small)
+                    .font(.system(size: 10.5))
+                }
+
+                Text("W\u{00E4}hle pro Workflow einen Trigger. Fremdtastaturen (z.B. KB066) senden kein fn – deaktiviere dort \u{201E}fn\u{201C} und nimm eine ⌘/⌃/⌥/⇧-Kombi auf.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !appState.accessibilityPermissionGranted {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.orange)
+                        Text("Ohne Bedienungshilfen/Eingabe\u{00FC}berwachung zünden Hotkeys evtl. nicht.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                        Button("\u{00D6}ffnen") {
+                            AccessibilityPermissionService.openSystemSettings()
+                        }
+                        .controlSize(.small)
+                        .font(.system(size: 10))
+                    }
+                }
 
                 VStack(spacing: 6) {
-                    ForEach(WorkflowType.mainMenuCases) { type in
-                        HStack {
-                            Text(type.hotkeyLabel)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 124, alignment: .leading)
-                            Text(appState.displayName(for: type))
-                                .font(.system(size: 11.5, weight: .medium))
-                            Spacer()
-                        }
+                    ForEach(WorkflowType.allCases) { type in
+                        HotkeyBindingRow(
+                            title: appState.displayName(for: type),
+                            binding: appState.binding(for: type),
+                            isRecording: recordingType == type,
+                            needsFallback: appState.hotkeyService.fallbackWorkflows.contains(type),
+                            onRecordToggle: { toggleRecording(for: type) },
+                            onFnToggle: { useFn in setFn(useFn, for: type) }
+                        )
                     }
+                }
+
+                if let hotkeyConflictMessage {
+                    Text(hotkeyConflictMessage)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 // Mode picker
@@ -625,6 +831,7 @@ struct CustomizeSettingsView: View {
                     .pickerStyle(.segmented)
                 }
             }
+            .onDisappear { cancelRecording() }
 
             // MARK: Blitztext+
             VStack(alignment: .leading, spacing: 10) {
