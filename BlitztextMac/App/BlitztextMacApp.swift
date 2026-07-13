@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             self?.menuBarStatusController.update(to: status)
         }
         appState.hotkeyService.start()
+        appState.syncHotkeyBindings()
 
         // Listen for popover dismiss requests (from auto-paste)
         NotificationCenter.default.addObserver(

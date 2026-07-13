@@ -40,6 +40,7 @@ final class AppState {
         didSet {
             saveSettings()
             prewarmLocalTranscriptionIfNeeded()
+            syncHotkeyBindings()
         }
     }
     var transcriptionSettings: TranscriptionSettings {
@@ -143,6 +144,46 @@ final class AppState {
         selectedLocalModelIsInstalled
             ? "\(LocalTranscriptionModel.displayName(for: selectedLocalModelName)) ist installiert"
             : "\(LocalTranscriptionModel.displayName(for: selectedLocalModelName)) installieren"
+    }
+
+    // MARK: - Hotkey Bindings
+
+    /// Aktuelle Bindings getypt, mit Default-Fallback je fehlendem Workflow.
+    var typedHotkeyBindings: [WorkflowType: HotkeyBinding] {
+        var result: [WorkflowType: HotkeyBinding] = [:]
+        for type in WorkflowType.allCases {
+            result[type] = appSettings.hotkeyBindings[type.rawValue] ?? HotkeyBinding.defaultBinding(for: type)
+        }
+        return result
+    }
+
+    func binding(for type: WorkflowType) -> HotkeyBinding {
+        appSettings.hotkeyBindings[type.rawValue] ?? HotkeyBinding.defaultBinding(for: type)
+    }
+
+    /// Binding setzen → löst didSet (Persistenz + Re-Registrierung) aus.
+    func setBinding(_ binding: HotkeyBinding, for type: WorkflowType) {
+        appSettings.hotkeyBindings[type.rawValue] = binding
+    }
+
+    /// Alle Trigger auf die heutigen fn-Defaults zurücksetzen (Requirement 9).
+    func resetHotkeysToDefaults() {
+        appSettings.hotkeyBindings = HotkeyBinding.defaultsByRawValue
+    }
+
+    /// Erster Workflow, der bereits dieselbe Kombi wie `candidate` belegt (außer `type`).
+    func hotkeyConflict(for candidate: HotkeyBinding, excluding type: WorkflowType) -> WorkflowType? {
+        for other in WorkflowType.allCases where other != type {
+            if binding(for: other).conflicts(with: candidate) {
+                return other
+            }
+        }
+        return nil
+    }
+
+    /// Bindings an den `HotkeyService` durchreichen (Live-Re-Registrierung).
+    func syncHotkeyBindings() {
+        hotkeyService.updateBindings(typedHotkeyBindings)
     }
 
     // MARK: - Workflow Management
