@@ -624,6 +624,7 @@ struct CustomizeSettingsView: View {
 
     // MARK: - Hotkey Recording
 
+    @MainActor
     private func toggleRecording(for type: WorkflowType) {
         if recordingType == type {
             cancelRecording()
@@ -666,6 +667,7 @@ struct CustomizeSettingsView: View {
 
     /// "fn verwenden" umschalten. An → fn-Default des Workflows (modifier-only).
     /// Aus → Standard-Kombi; ohne Basistaste bleibt sie ungültig bis zur Aufnahme.
+    @MainActor
     private func setFn(_ useFn: Bool, for type: WorkflowType) {
         cancelRecording()
         hotkeyConflictMessage = nil
@@ -683,6 +685,7 @@ struct CustomizeSettingsView: View {
         }
     }
 
+    @MainActor
     private func cancelRecording() {
         recorder.stop()
         recordingType = nil
