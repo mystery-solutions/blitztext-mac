@@ -61,7 +61,17 @@ enum TranscriptionQualityService {
         #"untertitel(ung)?(\s+(der|von|im\s+auftrag|des))?[^\n]*"#,
         #"untertitel\s+im\s+auftrag[^\n]*"#,
         #"amara\.org[^\n]*"#,
-        #"(copyright|©)[^\n]{0,40}\b(swr|wdr|zdf|ard|br|ndr|mdr|rbb|hr|arte|3sat|orf|srf|dw)\b[^\n]*"#
+        #"(copyright|©)[^\n]{0,40}\b(swr|wdr|zdf|ard|br|ndr|mdr|rbb|hr|arte|3sat|orf|srf|dw)\b[^\n]*"#,
+        // Nackter Sender-Credit mit Jahreszahl am Zeilen-/Textende ("SWR 2020",
+        // "WDR 2019."). Anker ans Ende, damit "BR 2020 war ..." als Satzanfang
+        // heil bleibt und legitimes "HR"/"BR" ohne Jahr ohnehin nie greift.
+        #"\b(swr|wdr|zdf|ard|br|ndr|mdr|rbb|hr|arte|3sat|orf|srf|dw)\s+(19|20)\d{2}[)\].,\s]*$"#,
+        // Abspann-Gruss aus Untertitel-Daten ("Danke fürs Zuschauen", "Vielen
+        // Dank für eure Aufmerksamkeit", "Danke, dass ihr dabei wart"). Bewusst
+        // an ein Stichwort geknuepft, damit legitimes "Danke für deine Mail ..."
+        // NICHT entfernt wird.
+        #"(vielen\s+dank|danke)[^\n]{0,25}(zuschauen|zuschaun|zuhören|zuhoeren|zusehen|zugeschaut|zugehört|zugehoert|aufmerksamkeit|dabei\s+(wart|ward|seid|seit)|gesehen\s+habt)[^\n]*"#,
+        #"bis\s+zum\s+n(ä|ae)chsten\s+mal[^\n]*"#
     ]
 
     /// Entfernt Non-Speech-Marker und bekannte Whisper-Halluzinationen.
