@@ -5,6 +5,9 @@ Format orientiert an [Keep a Changelog](https://keepachangelog.com/de/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Architektur-Gate in der CI** (SE-T-14159): Schritt *Architecture gate* im
+  bestehenden Job prüft per `npx jscpd` eine Duplikat-Schwelle von 6 %
+  (Ausgangswert 5,70 %); ADR in `docs/architecture-gates.md`. Keine Laufzeitänderung.
 - **Konfigurierbare Hotkeys / Trigger-Picker** (SE-T-714). Jeder Workflow-Trigger
   ist im Tab *Anpassen → Tastenkürzel* frei belegbar und wird persistent in
   `AppSettings.hotkeyBindings` (`[WorkflowType.rawValue: HotkeyBinding]`, JSON)

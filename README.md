@@ -133,7 +133,7 @@ See [docs/local-models.md](docs/local-models.md).
 
 Contributions are welcome, especially if they make the preview easier to build, understand, or fork.
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) first. CI also enforces a duplicate-code threshold, see [docs/architecture-gates.md](docs/architecture-gates.md).
 
 ## Support And Roadmap
 

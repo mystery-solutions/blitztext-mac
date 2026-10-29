@@ -40,6 +40,11 @@ jobs:
             exit 1
           fi
 
+      # Architecture gate (docs/architecture-gates.md): duplicate threshold as a
+      # ratchet. Baseline 5.70 % on 2026-10-29, new copies above 6 % fail.
+      - name: Architecture gate (duplicate threshold)
+        run: npx --yes jscpd@5.4.2 BlitztextMac --min-tokens 70 --threshold 6 --silent
+
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode.app
 
